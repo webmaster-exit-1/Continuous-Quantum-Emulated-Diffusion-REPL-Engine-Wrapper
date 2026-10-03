@@ -60,7 +60,9 @@ class REPLFeedbackLoop:
         self.sampler = sampler
         self.canvas = canvas or ContinuousCanvas()
         self.guidance = guidance or ErrorEntropyGuidance()
-        self.retry_policy = retry_policy or AttemptLimitRetryPolicy()
+        self.retry_policy = (
+            retry_policy if retry_policy is not None else AttemptLimitRetryPolicy()
+        )
 
     async def run(
         self, code: str, *, max_attempts: int = 3, timeout: float = 60.0
@@ -77,7 +79,7 @@ class REPLFeedbackLoop:
                 return FeedbackResult(candidate, execution, attempt, corrected)
             trace = format_execution_error(execution.error, execution.stderr)
             self.canvas.append(trace + "\n")
-            if not self.retry_policy.should_retry(
+            if attempt >= max_attempts or not self.retry_policy.should_retry(
                 execution, attempt=attempt, max_attempts=max_attempts
             ):
                 return FeedbackResult(candidate, execution, attempt, corrected)
