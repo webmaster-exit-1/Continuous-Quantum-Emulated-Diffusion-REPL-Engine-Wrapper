@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 import numpy as np
 
 from .canvas import ContinuousCanvas
+from .errors import ErrorContext, _error_parts
 from .quantum import QuantumTwinEvaluator
 
 T = TypeVar("T")
@@ -22,24 +23,70 @@ class DiffusionSampler(Protocol):
     ) -> str: ...
 
 
+class RepairSampler(Protocol):
+    def repair(self, request: RepairRequest) -> str | Awaitable[str]: ...
+
+
+class CodeRepairBackend(Protocol):
+    """Synchronous or asynchronous adapter for a generative code repair model."""
+
+    def repair(self, request: RepairRequest) -> str | Awaitable[str]: ...
+
+
 @dataclass(frozen=True)
 class Guidance:
     state: NDArray[np.complex128]
     entropy: float
 
 
+@dataclass(frozen=True)
+class RepairRequest:
+    """Model input for replacing one failing statement in the source."""
+
+    code: str
+    failure: ErrorContext
+    guidance: NDArray[np.complex128]
+    entropy: float
+
+
+class BackendRepairSampler:
+    """Adapt a pluggable repair backend to the feedback loop's sampler interface."""
+
+    def __init__(self, backend: CodeRepairBackend) -> None:
+        self.backend = backend
+
+    async def repair(self, request: RepairRequest) -> str:
+        result = self.backend.repair(request)
+        if inspect.isawaitable(result):
+            result = await result
+        if not isinstance(result, str):
+            raise TypeError("code repair backend must return replacement text")
+        return result
+
+
 class ErrorEntropyGuidance:
-    """Encode an error trace as a normalized deterministic state and entropy."""
+    """Encode structured failures as a normalized deterministic state and entropy."""
 
     def __init__(self, evaluator: QuantumTwinEvaluator | None = None) -> None:
         self.evaluator = evaluator or QuantumTwinEvaluator()
 
-    def from_error(self, error_trace: str) -> Guidance:
-        state = self.evaluator.twin_state(error_trace)
+    def from_error(self, error: str | ErrorContext) -> Guidance:
+        state = (
+            self.evaluator.twin_state(error)
+            if isinstance(error, str)
+            else self.evaluator.twin_state(self.evaluator.encode_error(error))
+        )
         return Guidance(state=state, entropy=self.evaluator.entropy(state))
 
-    def apply(self, sampler: DiffusionSampler, canvas: str, error_trace: str) -> str:
-        guidance = self.from_error(error_trace)
+    def apply(
+        self,
+        sampler: DiffusionSampler,
+        canvas: str,
+        error_trace: str,
+        *,
+        error: ErrorContext | None = None,
+    ) -> str:
+        guidance = self.from_error(error if error is not None else error_trace)
         return sampler.guide(canvas, guidance.state, guidance.entropy)
 
 

@@ -32,6 +32,14 @@ class QuantumOperatorTests(unittest.TestCase):
         self.assertGreaterEqual(evaluator.entropy(twin), 0.0)
         self.assertLessEqual(evaluator.entropy(twin), 2.0)
 
+    def test_similar_errors_have_more_similar_states_than_different_errors(self):
+        evaluator = QuantumTwinEvaluator()
+        first = evaluator.twin_state("NameError: name 'count' is not defined")
+        similar = evaluator.twin_state("NameError: name 'total' is not defined")
+        different = evaluator.twin_state("TypeError: unsupported operand types")
+
+        self.assertGreater(state_fidelity(first, similar), state_fidelity(first, different))
+
     def test_invalid_matrices_and_states_are_rejected(self):
         with self.assertRaises(ValueError):
             density_matrix([0, 0, 0, 0])

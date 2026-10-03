@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 from typing import Sequence
 
 import numpy as np
 from numpy.typing import NDArray
+
+from .errors import ErrorContext, _frames
 
 ComplexArray = NDArray[np.complex128]
 
@@ -52,7 +55,7 @@ def state_fidelity(
 
 
 class QuantumTwinEvaluator:
-    """Encode a trace and apply a fixed unitary transform; no quantum hardware is used."""
+    """Encode structured failure features and apply a fixed unitary transform."""
 
     def __init__(self, operator: NDArray[np.complex128] | None = None) -> None:
         self.operator = np.asarray(
@@ -65,12 +68,77 @@ class QuantumTwinEvaluator:
             raise ValueError("the twin operator must be unitary")
 
     def encode_trace(self, trace: str) -> ComplexArray:
-        """Map arbitrary trace text to a stable normalized four-amplitude state."""
+        """Encode exception, message, and traceback features into a stable state."""
         if not isinstance(trace, str):
             raise TypeError("error trace must be a string")
-        digest = hashlib.sha256(trace.encode("utf-8", errors="replace")).digest()
-        values = np.frombuffer(digest[:32], dtype=np.uint8).astype(np.float64)
-        amplitudes = (values[:4] - 127.5) + 1j * (values[4:8] - 127.5)
+        lines = trace.splitlines()
+        first = lines[0] if lines else "ExecutionError"
+        match = re.match(r"^([\w.]+)(?::\s*(.*))?$", first)
+        if match:
+            exception_type = match.group(1)
+            message = match.group(2) or (lines[1] if len(lines) > 1 else "")
+        else:
+            exception_type = "ExecutionError"
+            message = first
+        frames = _frames(tuple(lines))
+        return self._encode_features(
+            exception_type,
+            message,
+            tuple((frame.filename, frame.function) for frame in frames),
+            "",
+            (frames[-1].line, frames[-1].line, frames[-1].line)
+            if frames and frames[-1].line is not None
+            else None,
+        )
+
+    def encode_error(self, error: ErrorContext) -> ComplexArray:
+        """Encode structured execution failure and the affected source region."""
+        return self._encode_features(
+            error.exception_type,
+            error.message,
+            tuple((frame.filename, frame.function) for frame in error.frames),
+            error.failing_region,
+            (error.failing_line, error.region_start, error.region_end),
+        )
+
+    @staticmethod
+    def _encode_features(
+        exception_type: str,
+        message: str,
+        frames: tuple[tuple[str, str], ...],
+        failing_region: str,
+        location: tuple[int | None, int | None, int | None] | None = None,
+    ) -> ComplexArray:
+        vector = np.zeros(8, dtype=np.float64)
+
+        def add_tokens(text: str, start: int, width: int, weight: float) -> None:
+            tokens = re.findall(r"[a-zA-Z_][a-zA-Z_0-9]*|\d+", text.lower())
+            for token in tokens:
+                digest = hashlib.blake2b(token.encode("utf-8"), digest_size=2).digest()
+                index = start + digest[0] % width
+                sign = 1.0 if digest[1] & 1 else -1.0
+                vector[index] += sign * weight
+
+        if exception_type:
+            vector[0] += 1.0
+            add_tokens(exception_type, 0, 2, 1.0)
+        if message:
+            vector[2] += 1.0
+            add_tokens(message, 2, 3, 0.65)
+        frame_text = " ".join(
+            f"{filename} {function}" for filename, function in frames
+        )
+        if location is not None:
+            frame_text += " " + " ".join(
+                str(value) for value in location if value is not None
+            )
+        if frame_text:
+            vector[5] += 1.0
+            add_tokens(frame_text, 5, 2, 0.5)
+        if failing_region:
+            vector[7] += 1.0
+            add_tokens(failing_region, 7, 1, 0.35)
+        amplitudes = vector[::2] + 1j * vector[1::2]
         return _state_vector(amplitudes)
 
     def twin_state(
