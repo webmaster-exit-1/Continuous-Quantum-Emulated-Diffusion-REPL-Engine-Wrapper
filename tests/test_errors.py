@@ -55,3 +55,11 @@ class ExecutionErrorFormattingTests(unittest.TestCase):
         )
         self.assertEqual(context.failing_line, 2)
         self.assertEqual(context.failing_region, "second = 2")
+
+    def test_uses_stderr_when_kernel_error_has_no_message(self):
+        context = extract_error_context(
+            "raise RuntimeError()",
+            {"ename": "RuntimeError"},
+            "runtime failure details",
+        )
+        self.assertEqual(context.message, "runtime failure details")

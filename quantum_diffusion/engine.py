@@ -85,7 +85,9 @@ class REPLFeedbackLoop:
                 return FeedbackResult(candidate, execution, attempt, corrected)
             trace = format_execution_error(execution.error, execution.stderr)
             self.canvas.append(trace + "\n")
-            failure = extract_error_context(candidate, execution.error)
+            failure = extract_error_context(
+                candidate, execution.error, execution.stderr
+            )
             if attempt >= max_attempts or not self.retry_policy.should_retry(
                 execution, attempt=attempt, max_attempts=max_attempts
             ):

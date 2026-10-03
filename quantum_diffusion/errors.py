@@ -75,10 +75,11 @@ def _frames(traceback: tuple[str, ...]) -> tuple[TracebackFrame, ...]:
 
 
 def extract_error_context(
-    code: str, error: Mapping[str, Any] | None
+    code: str, error: Mapping[str, Any] | None, stderr: str = ""
 ) -> ErrorContext:
     """Extract traceback features and the smallest statement containing the failure."""
     exception_type, message, traceback = _error_parts(error)
+    message = message or stderr
     frames = _frames(traceback)
     lines = code.splitlines(keepends=True)
     explicit_line = None

@@ -48,5 +48,7 @@ class SelfHealingEvaluationTests(unittest.IsolatedAsyncioTestCase):
             all(request.guidance.shape == (4,) for request in backend.requests)
         )
         self.assertTrue(all(request.entropy >= 0 for request in backend.requests))
+        self.assertEqual(backend.requests[1].failure.failing_line, 1)
+        self.assertEqual(backend.requests[2].failure.failing_line, 2)
         self.assertEqual(backend.requests[1].failure.context_after, "print(value)")
         self.assertEqual(backend.requests[2].failure.context_before, "items = [1]")
