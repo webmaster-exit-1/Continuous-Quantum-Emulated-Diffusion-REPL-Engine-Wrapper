@@ -10,24 +10,70 @@ computation.
 
 ## Architecture
 
-`KernelSession` owns a persistent IPython kernel and returns structured
-`ExecutionResult` values. `REPLFeedbackLoop` records candidates and output in a
-`ContinuousCanvas`, formats execution errors, obtains state/entropy guidance,
-and asks a `DiffusionSampler` for a revision. An injectable retry policy decides
-whether another correction should be attempted; the existing `max_attempts`
-argument remains the hard per-run bound. `ErrorEntropyGuidance` and
-`QuantumTwinEvaluator` keep error encoding separate from loop orchestration.
-`ModelAPIWrapper` is a separate adapter for asynchronous inference streams.
+The project is a library, not a service or CLI. A persistent kernel executes
+code, a feedback loop turns failures into deterministic guidance, and a
+user-supplied `DiffusionSampler` proposes revised source. Each module has one
+responsibility:
 
-The main flow is source → kernel result → normalized error trace → deterministic
-guidance → sampler candidate → bounded retry. The canvas retains the newest
-text by character count, including appended source, errors, output, and model
-updates; it is not a structured history or token-aware prompt manager.
+| Module | Responsibility |
+| --- | --- |
+| `quantum_diffusion/repl.py` | Kernel lifecycle and execution. `SandboxProfile` prepares the private workspace and wraps the kernel command with bubblewrap (or not, if disabled). `KernelSession` owns the persistent IPython kernel, serializes executions, and returns structured `ExecutionResult` values (`stdout`, `stderr`, MIME outputs, `status`, `error`). |
+| `quantum_diffusion/engine.py` | Orchestration. `REPLFeedbackLoop` runs a candidate, records text on the canvas, asks a `RetryPolicy` whether to retry, and returns a `FeedbackResult`. It depends only on the `ExecutableKernel`, `DiffusionSampler` and `RetryPolicy` protocols. |
+| `quantum_diffusion/errors.py` | Error extraction. `format_execution_error` turns a kernel error payload (or stderr) into trace text. |
+| `quantum_diffusion/guidance.py` | Guidance and adapters. `ErrorEntropyGuidance` converts a trace into a `Guidance` (state vector and entropy) and calls the `DiffusionSampler`; `ModelAPIWrapper` streams an async inference callable into a canvas. |
+| `quantum_diffusion/quantum.py` | Deterministic error-state transform: `HADAMARD`, `CNOT`, `QuantumTwinEvaluator`, `density_matrix`, `state_fidelity`. Pure NumPy; no physical quantum computation. |
+| `quantum_diffusion/canvas.py` | `ContinuousCanvas`, a thread-safe, character-bounded text window. |
+| `quantum_diffusion/__init__.py` | Declares the supported package-root imports in `__all__`. Extension interfaces (`DiffusionSampler`, `ExecutableKernel`, `RetryPolicy`, `ErrorEntropyGuidance`, `ModelAPIWrapper`) are imported from their defining modules. |
 
-The package-root names listed in `quantum_diffusion.__all__` are the supported
-convenience imports. Extension interfaces and helpers can be imported from
-their defining modules, such as `quantum_diffusion.engine` and
-`quantum_diffusion.guidance`.
+### Execution flow
+
+1. **Source input** – `REPLFeedbackLoop.run(code, max_attempts=..., timeout=...)`
+   appends the candidate to the canvas.
+2. **Kernel execution** – the candidate runs in the persistent kernel, so
+   variables survive between attempts. Success returns immediately with
+   `corrected=True` only if an earlier attempt was revised.
+3. **Error extraction** – on failure, `format_execution_error` builds trace text
+   from the error name, value and traceback (falling back to stderr), and the
+   trace is appended to the canvas.
+4. **Guidance generation** – `ErrorEntropyGuidance` encodes the trace as a
+   normalized state vector and entropy via `QuantumTwinEvaluator`.
+5. **Candidate revision** – `DiffusionSampler.guide(canvas, state, entropy)`
+   returns replacement source; a non-string result raises `TypeError`.
+6. **Retry loop** – the revised candidate is executed again. The loop stops on
+   success, when `max_attempts` is reached (a hard bound), or when the
+   `RetryPolicy` declines. The last attempt's outcome is returned.
+
+### Context retention
+
+`ContinuousCanvas` holds source, execution output, error traces and model
+updates as one string and keeps only the newest `max_chars` characters
+(default 32,768); the oldest text is evicted first. The bound keeps the context
+passed to the sampler and inference callable at a predictable size no matter how
+long a session runs, and the newest text is the most relevant for the next
+revision. Consequences: earlier context can be lost, there is no structure or
+token accounting, and a single update longer than the budget is truncated to
+its suffix. `ModelAPIWrapper` appends inputs and streamed chunks to its canvas
+using the same policy; pass the same canvas to the loop and wrapper to share
+context.
+
+### How to extend this project
+
+- **New correction strategy**: implement `DiffusionSampler.guide(canvas,
+  guidance, entropy) -> str` and pass it to `REPLFeedbackLoop`.
+- **Different retry behavior**: implement `RetryPolicy.should_retry(execution,
+  *, attempt, max_attempts)`; `max_attempts` still bounds the run.
+- **Different kernel backend**: implement `ExecutableKernel.execute(code, *,
+  timeout)` returning an `ExecutionResult`.
+- **Different error encoding**: pass a custom `QuantumTwinEvaluator` to
+  `ErrorEntropyGuidance`, or change trace formatting in `errors.py`.
+- **Different context policy**: change `canvas.py` and keep its `append`/`text`
+  interface; add tests next to the existing `unittest` tests.
+- **New public names**: add them to `quantum_diffusion/__init__.py` `__all__`
+  only if they are intended as stable, and update `tests/test_api.py`.
+
+Keep terminology consistent: "kernel session" for execution, "canvas" for the
+bounded context, "guidance" for the deterministic state and entropy, and
+"sampler" for the user-supplied revision component.
 
 ## Install
 
