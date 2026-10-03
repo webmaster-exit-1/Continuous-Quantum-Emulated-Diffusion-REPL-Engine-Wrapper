@@ -140,12 +140,11 @@ def apply_region_repair(code: str, context: ErrorContext, replacement: str) -> s
     start = context.region_start - 1
     end = context.region_end
     original = "".join(lines[start:end])
-    if (
-        original.endswith(("\n", "\r"))
-        and replacement
-        and not replacement.endswith(("\n", "\r"))
+    if original.endswith(("\n", "\r")) and replacement and not replacement.endswith(
+        ("\n", "\r")
     ):
-        replacement += "\n"
+        line_ending = "\r\n" if original.endswith("\r\n") else original[-1]
+        replacement += line_ending
     return "".join(lines[:start]) + replacement + "".join(lines[end:])
 
 

@@ -56,6 +56,21 @@ class ExecutionErrorFormattingTests(unittest.TestCase):
         self.assertEqual(context.failing_line, 2)
         self.assertEqual(context.failing_region, "second = 2")
 
+    def test_region_repair_preserves_crlf_line_endings(self):
+        code = "before = 1\r\nvalue = 1 / 0\r\nafter = 2\r\n"
+        context = extract_error_context(
+            code,
+            {
+                "ename": "ZeroDivisionError",
+                "evalue": "division by zero",
+                "traceback": ["Cell In[1], line 2"],
+            },
+        )
+
+        repaired = apply_region_repair(code, context, "value = 1")
+
+        self.assertEqual(repaired, "before = 1\r\nvalue = 1\r\nafter = 2\r\n")
+
     def test_uses_stderr_when_kernel_error_has_no_message(self):
         context = extract_error_context(
             "raise RuntimeError()",
