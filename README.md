@@ -1,10 +1,33 @@
 # Continuous Quantum-Emulated Diffusion REPL Engine
 
-A Python foundation for a persistent Jupyter REPL feedback loop. It includes
-two-qubit matrix operators, deterministic error-trace encoding and inversion,
-a bounded code canvas, a diffusion-sampler interface, and a streaming model
-adapter. The sampler and inference API are interfaces: this package does not
-ship or train a diffusion model.
+A Python library foundation for a persistent Jupyter REPL feedback loop around
+trusted or semi-trusted code. It includes two-qubit matrix operators,
+deterministic error-trace encoding and inversion, a bounded text canvas, a
+diffusion-sampler interface, and a streaming model adapter. The sampler and
+inference API are interfaces: this package does not ship or train a diffusion
+model, provide a complete hostile-code sandbox, or perform physical quantum
+computation.
+
+## Architecture
+
+`KernelSession` owns a persistent IPython kernel and returns structured
+`ExecutionResult` values. `REPLFeedbackLoop` records candidates and output in a
+`ContinuousCanvas`, formats execution errors, obtains state/entropy guidance,
+and asks a `DiffusionSampler` for a revision. An injectable retry policy decides
+whether another correction should be attempted; the existing `max_attempts`
+argument remains the hard per-run bound. `ErrorEntropyGuidance` and
+`QuantumTwinEvaluator` keep error encoding separate from loop orchestration.
+`ModelAPIWrapper` is a separate adapter for asynchronous inference streams.
+
+The main flow is source → kernel result → normalized error trace → deterministic
+guidance → sampler candidate → bounded retry. The canvas retains the newest
+text by character count, including appended source, errors, output, and model
+updates; it is not a structured history or token-aware prompt manager.
+
+The package-root names listed in `quantum_diffusion.__all__` are the supported
+convenience imports. Extension interfaces and helpers can be imported from
+their defining modules, such as `quantum_diffusion.engine` and
+`quantum_diffusion.guidance`.
 
 ## Install
 
@@ -12,10 +35,12 @@ ship or train a diffusion model.
 python -m pip install .
 ```
 
-Kernel isolation uses [bubblewrap](https://github.com/containers/bubblewrap)
-by default. Install it using your operating system's package manager before
-starting a kernel. The writable execution directory is private to the session;
-the rest of the filesystem is mounted read-only inside the kernel.
+Kernel filesystem isolation uses
+[bubblewrap](https://github.com/containers/bubblewrap) by default. Install it
+using your operating system's package manager before starting a kernel. The
+writable execution directory is private to the session; the rest of the
+filesystem is mounted read-only inside the kernel. This is partial filesystem
+isolation only, not a security boundary for hostile code.
 
 ## Quick start
 
@@ -65,10 +90,13 @@ computation or a semantic guarantee that generated code will be corrected.
 ## Security and scope
 
 Bubblewrap gives the kernel a read-only view of the host filesystem and a
-writable session workspace, but this wrapper does not install seccomp filters,
-disable networking, or provide a complete hostile-code security boundary.
-Do not run untrusted code where those guarantees are required; use a hardened
-container or VM with network, syscall, resource, and identity controls.
+writable session workspace. It does not disable networking, install seccomp
+filters, limit CPU/memory/process use, or provide identity separation. The
+kernel runs under the current user's identity, so filesystem permissions and
+other host-level access may still matter. Do not run arbitrary hostile code
+where containment is required; use a separately hardened container or VM with
+network, syscall, resource, and identity controls. Explicitly disabling
+bubblewrap is intended only for trusted code and development.
 
 ## Tests
 

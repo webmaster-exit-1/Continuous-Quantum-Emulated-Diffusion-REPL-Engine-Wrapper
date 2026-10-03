@@ -1,4 +1,4 @@
-"""A bounded, thread-safe text canvas for continuous code context."""
+"""Thread-safe suffix-bounded text context shared by execution and inference."""
 
 from __future__ import annotations
 
@@ -7,7 +7,11 @@ from threading import RLock
 
 
 class ContinuousCanvas:
-    """Keep the newest text within a fixed character budget."""
+    """Keep the newest appended text within a fixed character budget.
+
+    This is a plain text window, not a structured event log or token-aware
+    prompt manager.
+    """
 
     def __init__(self, max_chars: int = 32_768) -> None:
         if max_chars <= 0:

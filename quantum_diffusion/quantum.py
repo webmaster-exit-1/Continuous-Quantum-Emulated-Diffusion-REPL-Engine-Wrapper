@@ -1,4 +1,4 @@
-"""Two-qubit matrix operators and deterministic error-state inversion."""
+"""Two-qubit matrix operators and deterministic error-feature transforms."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def state_fidelity(
 
 
 class QuantumTwinEvaluator:
-    """Encode an error trace and invert it through a fixed unitary operator."""
+    """Encode a trace and apply a fixed unitary transform; no quantum hardware is used."""
 
     def __init__(self, operator: NDArray[np.complex128] | None = None) -> None:
         self.operator = np.asarray(
