@@ -104,6 +104,7 @@ class KernelSession:
         self.startup_timeout = startup_timeout
         self.manager: _SandboxedKernelManager | None = None
         self.client: Any | None = None
+        self._execute_lock = asyncio.Lock()
 
     async def start(self) -> None:
         if self.manager is not None:
@@ -146,88 +147,91 @@ class KernelSession:
             raise TypeError("code must be a string")
         if self.manager is None or self.client is None:
             raise RuntimeError("kernel session is not started")
-        message_id = self.client.execute(code, stop_on_error=False)
-        started = time.monotonic()
-        shell_task = asyncio.create_task(self.client.get_shell_msg())
-        iopub_task = asyncio.create_task(self.client.get_iopub_msg())
-        stdout: list[str] = []
-        stderr: list[str] = []
-        outputs: list[dict[str, Any]] = []
-        error: dict[str, Any] | None = None
-        execution_count: int | None = None
-        shell_reply: dict[str, Any] | None = None
-        idle_seen = False
-        try:
-            while shell_reply is None or not idle_seen:
-                remaining = timeout - (time.monotonic() - started)
-                if remaining <= 0:
-                    raise TimeoutError(f"kernel execution exceeded {timeout} seconds")
-                done, _ = await asyncio.wait(
-                    {task for task in (shell_task, iopub_task) if not task.done()},
-                    timeout=remaining,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if not done:
-                    raise TimeoutError(f"kernel execution exceeded {timeout} seconds")
-                if iopub_task in done:
-                    message = iopub_task.result()
-                    parent_id = message.get("parent_header", {}).get("msg_id")
-                    if parent_id == message_id:
-                        message_type = message.get("header", {}).get("msg_type")
-                        content = message.get("content", {})
-                        if message_type == "stream":
-                            target = stderr if content.get("name") == "stderr" else stdout
-                            target.append(content.get("text", ""))
-                        elif message_type == "error":
-                            error = content
-                            outputs.append({"output_type": "error", **content})
-                        elif message_type == "execute_result":
-                            execution_count = content.get("execution_count")
-                            outputs.append(
-                                {
-                                    "output_type": "execute_result",
-                                    "data": content.get("data", {}),
-                                    "metadata": content.get("metadata", {}),
-                                    "execution_count": execution_count,
-                                }
-                            )
-                        elif message_type == "display_data":
-                            outputs.append(
-                                {
-                                    "output_type": "display_data",
-                                    "data": content.get("data", {}),
-                                    "metadata": content.get("metadata", {}),
-                                }
-                            )
-                        elif message_type == "status" and content.get("execution_state") == "idle":
-                            idle_seen = True
-                    if not idle_seen:
-                        iopub_task = asyncio.create_task(self.client.get_iopub_msg())
-                if shell_task in done:
-                    candidate = shell_task.result()
-                    if candidate.get("parent_header", {}).get("msg_id") == message_id:
-                        shell_reply = candidate.get("content", {})
-                        execution_count = shell_reply.get("execution_count", execution_count)
-                        if shell_reply.get("status") == "error" and error is None:
-                            error = shell_reply
-                    else:
-                        shell_task = asyncio.create_task(self.client.get_shell_msg())
-            return ExecutionResult(
-                stdout="".join(stdout),
-                stderr="".join(stderr),
-                outputs=tuple(outputs),
-                execution_count=execution_count,
-                status=(shell_reply or {}).get("status", "ok"),
-                error=error,
+        async with self._execute_lock:
+            message_id = self.client.execute(
+                code, stop_on_error=False, allow_stdin=False
             )
-        except TimeoutError:
-            await self.manager.interrupt_kernel()
-            raise
-        finally:
-            for task in (shell_task, iopub_task):
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(shell_task, iopub_task, return_exceptions=True)
+            started = time.monotonic()
+            shell_task = asyncio.create_task(self.client.get_shell_msg())
+            iopub_task = asyncio.create_task(self.client.get_iopub_msg())
+            stdout: list[str] = []
+            stderr: list[str] = []
+            outputs: list[dict[str, Any]] = []
+            error: dict[str, Any] | None = None
+            execution_count: int | None = None
+            shell_reply: dict[str, Any] | None = None
+            idle_seen = False
+            try:
+                while shell_reply is None or not idle_seen:
+                    remaining = timeout - (time.monotonic() - started)
+                    if remaining <= 0:
+                        raise TimeoutError(f"kernel execution exceeded {timeout} seconds")
+                    done, _ = await asyncio.wait(
+                        {task for task in (shell_task, iopub_task) if not task.done()},
+                        timeout=remaining,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if not done:
+                        raise TimeoutError(f"kernel execution exceeded {timeout} seconds")
+                    if iopub_task in done:
+                        message = iopub_task.result()
+                        parent_id = message.get("parent_header", {}).get("msg_id")
+                        if parent_id == message_id:
+                            message_type = message.get("header", {}).get("msg_type")
+                            content = message.get("content", {})
+                            if message_type == "stream":
+                                target = stderr if content.get("name") == "stderr" else stdout
+                                target.append(content.get("text", ""))
+                            elif message_type == "error":
+                                error = content
+                                outputs.append({"output_type": "error", **content})
+                            elif message_type == "execute_result":
+                                execution_count = content.get("execution_count")
+                                outputs.append(
+                                    {
+                                        "output_type": "execute_result",
+                                        "data": content.get("data", {}),
+                                        "metadata": content.get("metadata", {}),
+                                        "execution_count": execution_count,
+                                    }
+                                )
+                            elif message_type == "display_data":
+                                outputs.append(
+                                    {
+                                        "output_type": "display_data",
+                                        "data": content.get("data", {}),
+                                        "metadata": content.get("metadata", {}),
+                                    }
+                                )
+                            elif message_type == "status" and content.get("execution_state") == "idle":
+                                idle_seen = True
+                        if not idle_seen:
+                            iopub_task = asyncio.create_task(self.client.get_iopub_msg())
+                    if shell_task in done:
+                        candidate = shell_task.result()
+                        if candidate.get("parent_header", {}).get("msg_id") == message_id:
+                            shell_reply = candidate.get("content", {})
+                            execution_count = shell_reply.get("execution_count", execution_count)
+                            if shell_reply.get("status") == "error" and error is None:
+                                error = shell_reply
+                        else:
+                            shell_task = asyncio.create_task(self.client.get_shell_msg())
+                return ExecutionResult(
+                    stdout="".join(stdout),
+                    stderr="".join(stderr),
+                    outputs=tuple(outputs),
+                    execution_count=execution_count,
+                    status=(shell_reply or {}).get("status", "ok"),
+                    error=error,
+                )
+            except TimeoutError:
+                await self.manager.interrupt_kernel()
+                raise
+            finally:
+                for task in (shell_task, iopub_task):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(shell_task, iopub_task, return_exceptions=True)
 
     async def close(self) -> None:
         manager, client = self.manager, self.client
