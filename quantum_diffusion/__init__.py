@@ -1,4 +1,8 @@
-"""Continuous quantum-emulated diffusion REPL components."""
+"""Public API for the persistent REPL feedback library.
+
+The names in ``__all__`` are the package-root import surface; implementation
+helpers and integration protocols remain available from their defining modules.
+"""
 
 from .canvas import ContinuousCanvas
 from .engine import FeedbackResult, REPLFeedbackLoop

@@ -1,4 +1,4 @@
-"""Interfaces for routing error-derived states into diffusion inference."""
+"""Convert execution errors into sampler guidance and adapt streaming inference."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class Guidance:
 
 
 class ErrorEntropyGuidance:
-    """Turn a REPL error into a normalized twin vector and entropy score."""
+    """Encode an error trace as a normalized deterministic state and entropy."""
 
     def __init__(self, evaluator: QuantumTwinEvaluator | None = None) -> None:
         self.evaluator = evaluator or QuantumTwinEvaluator()
@@ -47,7 +47,7 @@ Inference = Callable[[str], AsyncIterable[T] | Awaitable[AsyncIterable[T]]]
 
 
 class ModelAPIWrapper:
-    """Stream model updates into a persistent canvas without resetting context."""
+    """Append model inputs and streamed text updates to a bounded canvas."""
 
     def __init__(
         self, inference: Inference, canvas: ContinuousCanvas | None = None

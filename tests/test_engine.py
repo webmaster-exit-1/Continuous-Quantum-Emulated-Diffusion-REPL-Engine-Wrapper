@@ -1,6 +1,6 @@
 import unittest
 
-from quantum_diffusion.engine import REPLFeedbackLoop
+from quantum_diffusion.engine import AttemptLimitRetryPolicy, REPLFeedbackLoop
 from quantum_diffusion.repl import ExecutionResult
 
 
@@ -49,3 +49,26 @@ class FeedbackLoopTests(unittest.IsolatedAsyncioTestCase):
             await REPLFeedbackLoop(kernel, CorrectingSampler()).run(
                 "bad", max_attempts=0
             )
+
+    async def test_retry_policy_can_stop_after_first_failure(self):
+        class StopAfterFirstFailure:
+            def should_retry(self, execution, *, attempt, max_attempts):
+                return False
+
+        kernel = FakeKernel()
+        result = await REPLFeedbackLoop(
+            kernel, CorrectingSampler(), retry_policy=StopAfterFirstFailure()
+        ).run("bad")
+        self.assertEqual(kernel.calls, ["bad"])
+        self.assertEqual(result.attempts, 1)
+        self.assertFalse(result.corrected)
+
+
+class RetryPolicyTests(unittest.TestCase):
+    def test_attempt_limit_policy_retries_only_with_attempts_remaining(self):
+        policy = AttemptLimitRetryPolicy()
+        failure = ExecutionResult(status="error")
+        success = ExecutionResult(status="ok")
+        self.assertTrue(policy.should_retry(failure, attempt=1, max_attempts=2))
+        self.assertFalse(policy.should_retry(failure, attempt=2, max_attempts=2))
+        self.assertFalse(policy.should_retry(success, attempt=1, max_attempts=2))

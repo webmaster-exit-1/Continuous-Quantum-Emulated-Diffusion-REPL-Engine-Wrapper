@@ -21,7 +21,11 @@ except ImportError as exc:  # pragma: no cover - exercised when optional deps ar
 
 @dataclass
 class SandboxProfile:
-    """Configure a kernel's writable execution directory and optional bubblewrap."""
+    """Configure a writable workspace and optional partial filesystem isolation.
+
+    Bubblewrap mounts the host filesystem read-only and the workspace writable;
+    it does not provide a complete hostile-code sandbox.
+    """
 
     workspace: Path | str | None = None
     use_bubblewrap: bool = True
@@ -90,7 +94,7 @@ class ExecutionResult:
 
 
 class KernelSession:
-    """Own one persistent IPython kernel and consume its async ZMQ channels."""
+    """Own a persistent IPython kernel and normalize its asynchronous outputs."""
 
     def __init__(
         self,
