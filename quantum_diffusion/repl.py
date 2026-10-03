@@ -116,13 +116,22 @@ class KernelSession:
             connection_file=str(connection_file),
         )
         try:
+            inherited_env = {
+                key: os.environ[key]
+                for key in ("HOME", "LANG", "LC_ALL", "LC_CTYPE", "SYSTEMROOT", "WINDIR")
+                if key in os.environ
+            }
             await self.manager.start_kernel(
                 cwd=str(workspace),
                 env={
-                    **os.environ,
-                    "HOME": str(workspace),
+                    **inherited_env,
+                    "PATH": os.defpath,
                     "TMPDIR": str(workspace),
                     "JUPYTER_RUNTIME_DIR": str(workspace),
+                    "JUPYTER_CONFIG_DIR": str(workspace / ".jupyter"),
+                    "JUPYTER_DATA_DIR": str(workspace / ".local" / "share" / "jupyter"),
+                    "IPYTHONDIR": str(workspace / ".ipython"),
+                    "XDG_CACHE_HOME": str(workspace / ".cache"),
                 },
             )
             self.client = self.manager.client()
