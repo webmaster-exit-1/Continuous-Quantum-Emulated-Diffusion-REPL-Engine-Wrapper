@@ -12,13 +12,20 @@ from .repl import ExecutionResult
 
 
 class ExecutableKernel(Protocol):
-    """Kernel interface required by the feedback loop."""
+    """Asynchronous kernel contract used by the feedback loop.
+
+    Implementations accept source code and the timeout keyword, then return an
+    ``ExecutionResult`` describing the execution.
+    """
 
     async def execute(self, code: str, *, timeout: float = 60.0) -> ExecutionResult: ...
 
 
 class RetryPolicy(Protocol):
-    """Decide whether a failed execution should receive another correction."""
+    """Decide whether a failed execution should receive another correction.
+
+    ``attempt`` is one-based; ``max_attempts`` is the run's upper bound.
+    """
 
     def should_retry(
         self, execution: ExecutionResult, *, attempt: int, max_attempts: int

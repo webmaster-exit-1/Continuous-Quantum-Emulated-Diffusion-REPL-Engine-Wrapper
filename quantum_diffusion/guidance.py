@@ -17,6 +17,8 @@ T = TypeVar("T")
 
 
 class DiffusionSampler(Protocol):
+    """Produce corrected source from canvas context and error guidance."""
+
     def guide(
         self, canvas: str, guidance: NDArray[np.complex128], entropy: float
     ) -> str: ...
