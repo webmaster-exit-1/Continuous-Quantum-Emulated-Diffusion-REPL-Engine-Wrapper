@@ -56,7 +56,7 @@ class QuantumTwinEvaluator:
 
     def __init__(self, operator: NDArray[np.complex128] | None = None) -> None:
         self.operator = np.asarray(
-            np.kron(HADAMARD, CNOT) if operator is None else operator,
+            CNOT @ HADAMARD if operator is None else operator,
             dtype=np.complex128,
         )
         if self.operator.shape != (4, 4):

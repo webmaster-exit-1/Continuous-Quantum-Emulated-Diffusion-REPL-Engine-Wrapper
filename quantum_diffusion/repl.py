@@ -35,6 +35,7 @@ class SandboxProfile:
             self.workspace = Path(self.workspace).expanduser().resolve()
             self.workspace.mkdir(parents=True, exist_ok=True)
         if self.use_bubblewrap and shutil.which("bwrap") is None:
+            self.cleanup()
             raise RuntimeError(
                 "bubblewrap is required for filesystem sandboxing; install bwrap "
                 "or explicitly opt out with use_bubblewrap=False"
@@ -55,8 +56,6 @@ class SandboxProfile:
             "--bind",
             str(workspace),
             str(workspace),
-            "--tmpfs",
-            "/tmp",
             "--chdir",
             str(workspace),
             *command,
@@ -122,7 +121,8 @@ class KernelSession:
                 env={
                     **os.environ,
                     "HOME": str(workspace),
-                    "TMPDIR": "/tmp" if self.profile.use_bubblewrap else str(workspace),
+                    "TMPDIR": str(workspace),
+                    "JUPYTER_RUNTIME_DIR": str(workspace),
                 },
             )
             self.client = self.manager.client()
