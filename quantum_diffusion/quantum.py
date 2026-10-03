@@ -10,7 +10,7 @@ from typing import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
-from .errors import ErrorContext, _frames
+from .errors import ErrorContext, traceback_frames
 
 ComplexArray = NDArray[np.complex128]
 
@@ -80,7 +80,7 @@ class QuantumTwinEvaluator:
         else:
             exception_type = "ExecutionError"
             message = first
-        frames = _frames(tuple(lines))
+        frames = traceback_frames(tuple(lines))
         return self._encode_features(
             exception_type,
             message,
