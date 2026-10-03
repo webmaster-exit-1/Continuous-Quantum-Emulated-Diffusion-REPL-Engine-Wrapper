@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from pathlib import Path
+from unittest.mock import patch
 
 from quantum_diffusion.repl import KernelSession, SandboxProfile
 
@@ -40,3 +40,16 @@ class KernelSessionTests(unittest.IsolatedAsyncioTestCase):
                     for output in result.outputs
                 )
             )
+
+    async def test_kernel_does_not_inherit_arbitrary_environment_secrets(self):
+        with patch.dict("os.environ", {"REPL_TEST_SECRET": "not-for-kernel"}):
+            async with KernelSession(
+                SandboxProfile(use_bubblewrap=False)
+            ) as kernel:
+                result = await kernel.execute("'REPL_TEST_SECRET' in __import__('os').environ")
+                self.assertTrue(
+                    any(
+                        output.get("data", {}).get("text/plain") == "False"
+                        for output in result.outputs
+                    )
+                )
