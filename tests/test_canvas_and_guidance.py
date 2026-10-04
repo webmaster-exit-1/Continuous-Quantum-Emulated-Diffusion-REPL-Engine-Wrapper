@@ -39,3 +39,11 @@ class ModelWrapperTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(updates), 1)
         self.assertIn("print('hello')", wrapper.canvas.text)
         self.assertIn("# generated after", wrapper.canvas.text)
+
+    async def test_sync_inference_callable_can_return_async_stream(self):
+        async def chunks():
+            yield "generated"
+
+        wrapper = ModelAPIWrapper(lambda context: chunks())
+        updates = [item async for item in wrapper.stream("prompt")]
+        self.assertEqual(updates, ["promptgenerated"])
