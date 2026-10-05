@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from typing import Protocol
 
 from .canvas import ContinuousCanvas
-from .errors import format_execution_error
-from .guidance import DiffusionSampler, ErrorEntropyGuidance
+from .errors import apply_region_repair, extract_error_context, format_execution_error
+from .guidance import (
+    DiffusionSampler,
+    ErrorEntropyGuidance,
+    RepairRequest,
+    RepairSampler,
+)
 from .repl import ExecutionResult
 
 
@@ -57,7 +63,7 @@ class REPLFeedbackLoop:
     def __init__(
         self,
         kernel: ExecutableKernel,
-        sampler: DiffusionSampler,
+        sampler: DiffusionSampler | RepairSampler,
         *,
         canvas: ContinuousCanvas | None = None,
         guidance: ErrorEntropyGuidance | None = None,
@@ -86,14 +92,34 @@ class REPLFeedbackLoop:
                 return FeedbackResult(candidate, execution, attempt, corrected)
             trace = format_execution_error(execution.error, execution.stderr)
             self.canvas.append(trace + "\n")
+            failure = extract_error_context(
+                candidate, execution.error, execution.stderr
+            )
             if attempt >= max_attempts or not self.retry_policy.should_retry(
                 execution, attempt=attempt, max_attempts=max_attempts
             ):
                 return FeedbackResult(candidate, execution, attempt, corrected)
-            candidate = self.guidance.apply(
-                self.sampler, self.canvas.text, trace
-            )
-            if not isinstance(candidate, str):
-                raise TypeError("diffusion sampler must return corrected code as text")
+            repair = getattr(self.sampler, "repair", None)
+            if repair is not None:
+                guidance = self.guidance.from_error(failure)
+                replacement = repair(
+                    RepairRequest(
+                        code=candidate,
+                        failure=failure,
+                        guidance=guidance.state,
+                        entropy=guidance.entropy,
+                    )
+                )
+                if inspect.isawaitable(replacement):
+                    replacement = await replacement
+                if not isinstance(replacement, str):
+                    raise TypeError("code repair sampler must return replacement text")
+                candidate = apply_region_repair(candidate, failure, replacement)
+            else:
+                candidate = self.guidance.apply(
+                    self.sampler, self.canvas.text, trace, error=failure
+                )
+                if not isinstance(candidate, str):
+                    raise TypeError("diffusion sampler must return corrected code as text")
             corrected = True
         raise AssertionError("feedback loop exited without a result")
