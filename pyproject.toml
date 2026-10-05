@@ -14,5 +14,8 @@ dependencies = [
     "ipykernel>=6.29,<8",
 ]
 
+[project.optional-dependencies]
+diffusion = ["torch>=2.0", "transformers>=4.30"]
+
 [tool.setuptools.packages.find]
 include = ["quantum_diffusion*"]

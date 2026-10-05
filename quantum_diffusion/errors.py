@@ -36,6 +36,9 @@ _FRAME_PATTERNS = (
         r'(?:, in (?P<function>.+))?'
     ),
     re.compile(
+        r"File (?P<filename>[^\s\"']+):(?P<line>\d+)(?:, in (?P<function>.+))?"
+    ),
+    re.compile(
         r"Cell In\[[^\]]+\], line (?P<line>\d+)"
         r"(?:, in (?P<function>.+))?"
     ),
@@ -43,7 +46,7 @@ _FRAME_PATTERNS = (
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
-def _error_parts(error: Mapping[str, Any] | None) -> tuple[str, str, tuple[str, ...]]:
+def error_parts(error: Mapping[str, Any] | None) -> tuple[str, str, tuple[str, ...]]:
     if not isinstance(error, Mapping):
         error = {}
     traceback = error.get("traceback", ())
@@ -56,7 +59,7 @@ def _error_parts(error: Mapping[str, Any] | None) -> tuple[str, str, tuple[str, 
     )
 
 
-def _frames(traceback: tuple[str, ...]) -> tuple[TracebackFrame, ...]:
+def traceback_frames(traceback: tuple[str, ...]) -> tuple[TracebackFrame, ...]:
     frames = []
     for text in traceback:
         for line in _ANSI_ESCAPE.sub("", text).splitlines():
@@ -78,9 +81,9 @@ def extract_error_context(
     code: str, error: Mapping[str, Any] | None, stderr: str = ""
 ) -> ErrorContext:
     """Extract traceback features and the smallest statement containing the failure."""
-    exception_type, message, traceback = _error_parts(error)
+    exception_type, message, traceback = error_parts(error)
     message = message or stderr
-    frames = _frames(traceback)
+    frames = traceback_frames(traceback)
     lines = code.splitlines(keepends=True)
     explicit_line = None
     if isinstance(error, Mapping):
@@ -150,7 +153,7 @@ def format_execution_error(
     error: Mapping[str, Any] | None, stderr: str = ""
 ) -> str:
     """Format a kernel error payload, using stderr when details are unavailable."""
-    exception_type, message, traceback = _error_parts(error)
+    exception_type, message, traceback = error_parts(error)
     return "\n".join(
         [
             exception_type,

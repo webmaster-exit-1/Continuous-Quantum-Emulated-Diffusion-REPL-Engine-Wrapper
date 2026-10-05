@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 import numpy as np
 
 from .canvas import ContinuousCanvas
-from .errors import ErrorContext, _error_parts
+from .errors import ErrorContext, error_parts
 from .quantum import QuantumTwinEvaluator
 
 T = TypeVar("T")

@@ -15,6 +15,7 @@ from .guidance import (
     RepairSampler,
 )
 from .repl import ExecutionResult
+from .samplers import DiscreteDiffusionSampler
 
 
 class ExecutableKernel(Protocol):
@@ -63,14 +64,14 @@ class REPLFeedbackLoop:
     def __init__(
         self,
         kernel: ExecutableKernel,
-        sampler: DiffusionSampler | RepairSampler,
+        sampler: DiffusionSampler | RepairSampler | None = None,
         *,
         canvas: ContinuousCanvas | None = None,
         guidance: ErrorEntropyGuidance | None = None,
         retry_policy: RetryPolicy | None = None,
     ) -> None:
         self.kernel = kernel
-        self.sampler = sampler
+        self.sampler = sampler if sampler is not None else DiscreteDiffusionSampler()
         self.canvas = canvas or ContinuousCanvas()
         self.guidance = guidance or ErrorEntropyGuidance()
         self.retry_policy = (
@@ -114,7 +115,10 @@ class REPLFeedbackLoop:
                     replacement = await replacement
                 if not isinstance(replacement, str):
                     raise TypeError("code repair sampler must return replacement text")
-                candidate = apply_region_repair(candidate, failure, replacement)
+                repaired = apply_region_repair(candidate, failure, replacement)
+                if repaired == candidate:
+                    continue
+                candidate = repaired
             else:
                 candidate = self.guidance.apply(
                     self.sampler, self.canvas.text, trace, error=failure

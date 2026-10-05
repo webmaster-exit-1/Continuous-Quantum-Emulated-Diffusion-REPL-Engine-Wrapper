@@ -20,6 +20,7 @@ from .quantum import (
     state_fidelity,
 )
 from .repl import ExecutionResult, KernelSession, SandboxProfile
+from .samplers import DiscreteDiffusionSampler, TokenScorer
 
 __all__ = [
     "CNOT",
@@ -28,6 +29,7 @@ __all__ = [
     "ExecutableKernel",
     "HADAMARD",
     "ContinuousCanvas",
+    "DiscreteDiffusionSampler",
     "ExecutionResult",
     "FeedbackResult",
     "Inference",
@@ -36,6 +38,7 @@ __all__ = [
     "REPLFeedbackLoop",
     "RetryPolicy",
     "SandboxProfile",
+    "TokenScorer",
     "density_matrix",
     "state_fidelity",
 ]
