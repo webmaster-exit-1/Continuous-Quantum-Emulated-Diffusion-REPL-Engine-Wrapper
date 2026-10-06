@@ -45,3 +45,18 @@ class QuantumOperatorTests(unittest.TestCase):
             density_matrix([0, 0, 0, 0])
         with self.assertRaises(ValueError):
             QuantumTwinEvaluator(np.zeros((4, 4), dtype=np.complex128))
+
+
+    def test_exit_twin_of_failure_is_exit_zero(self):
+        from quantum_diffusion.quantum import EXIT_1
+
+        evaluator = QuantumTwinEvaluator()
+        failure = evaluator.as_exit(EXIT_1, 1)
+        twin = evaluator.exit_twin(failure)
+        self.assertAlmostEqual(evaluator.exit_probability(failure, 1), 1.0)
+        self.assertAlmostEqual(evaluator.exit_probability(twin, 0), 1.0)
+        self.assertAlmostEqual(evaluator.exit_probability(twin, 1), 0.0)
+        noisy = evaluator.as_exit(evaluator.encode_trace("NameError: name 'x' is not defined"), 1)
+        self.assertAlmostEqual(evaluator.exit_probability(noisy, 1), 1.0)
+        self.assertAlmostEqual(evaluator.exit_probability(evaluator.exit_twin(noisy), 0), 1.0)
+        self.assertGreater(evaluator.entropy(noisy), 0.0)

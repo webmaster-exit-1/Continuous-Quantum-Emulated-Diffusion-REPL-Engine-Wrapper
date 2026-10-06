@@ -128,6 +128,14 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual(req.failure.context_before, before)
         self.assertEqual(req.failure.context_after, after)
 
+    def test_entropy_is_diffusion_noise(self):
+        self.assertEqual(DiscreteDiffusionSampler.noise_scale(0.0), 0.0)
+        self.assertEqual(DiscreteDiffusionSampler.noise_scale(2.0), 1.0)
+        self.assertGreater(
+            DiscreteDiffusionSampler.temperature(2.0),
+            DiscreteDiffusionSampler.temperature(0.0),
+        )
+
     def test_determinism_and_guidance_bias(self):
         g1 = np.array([1, 0, 0, 0], dtype=np.complex128)
         g2 = np.array([0, 1j, 0, 0], dtype=np.complex128)

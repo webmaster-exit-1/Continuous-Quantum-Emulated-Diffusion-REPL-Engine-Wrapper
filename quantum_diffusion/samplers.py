@@ -159,6 +159,14 @@ class DiscreteDiffusionSampler:
         return 1.0 + float(entropy) * 0.1
 
     @staticmethod
+    def noise_scale(entropy: float) -> float:
+        """Map exit-1 Shannon entropy to a diffusion noise level in [0, 1].
+
+        Two qubits have at most 2 bits of entropy. Zero noise is already exit 0.
+        """
+        return float(min(1.0, max(0.0, float(entropy) / 2.0)))
+
+    @staticmethod
     def logit_bias(guidance: NDArray[np.complex128], vocab_size: int) -> NDArray[np.float64]:
         """Deterministic per-token logit bias derived from the guidance vector."""
         amplitudes = np.asarray(guidance, dtype=np.complex128).reshape(-1)
@@ -220,7 +228,12 @@ class DiscreteDiffusionSampler:
             probs /= probs.sum(axis=1, keepdims=True)
             choices = [int(rng.choice(probs.shape[1], p=row)) for row in probs]
             confidence = [float(probs[i, c]) for i, c in enumerate(choices)]
-            quota = math.ceil(len(remaining) / (self.steps - step))
+            # Entropy is noise: a noisier exit-1 state commits fewer tokens per step.
+            noise = self.noise_scale(request.entropy)
+            if step == self.steps - 1:
+                quota = len(remaining)
+            else:
+                quota = max(1, math.ceil(len(remaining) * (1.0 - noise) / (self.steps - step)))
             order = sorted(range(len(remaining)), key=lambda i: (-confidence[i], i))
             for i in order[:quota]:
                 committed[remaining[i]] = choices[i]

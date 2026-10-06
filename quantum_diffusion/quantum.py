@@ -26,6 +26,20 @@ CNOT = np.array(
     dtype=np.complex128,
 )
 
+# Computational basis: |exit, feature>. Exit 0 is success, exit 1 is failure.
+EXIT_0 = np.array([1, 0, 0, 0], dtype=np.complex128)
+EXIT_1 = np.array([0, 0, 1, 0], dtype=np.complex128)
+# Pauli X on the exit qubit. The twin of exit 1 is exit 0.
+_STATUS_FLIP = np.array(
+    [
+        [0, 0, 1, 0],
+        [0, 0, 0, 1],
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+    ],
+    dtype=np.complex128,
+)
+
 
 def _state_vector(state: Sequence[complex] | NDArray[np.complex128]) -> ComplexArray:
     vector = np.asarray(state, dtype=np.complex128)
@@ -140,6 +154,43 @@ class QuantumTwinEvaluator:
             add_tokens(failing_region, 7, 1, 0.35)
         amplitudes = vector[::2] + 1j * vector[1::2]
         return _state_vector(amplitudes)
+
+
+    def as_exit(self, state: Sequence[complex] | NDArray[np.complex128], code: int) -> ComplexArray:
+        """Place a feature state on exit 0 or exit 1. 1 is the observed failure."""
+        if code not in (0, 1):
+            raise ValueError("exit code must be 0 or 1")
+        vector = _state_vector(state)
+        feature = vector[:2] + vector[2:]
+        placed = np.zeros(4, dtype=np.complex128)
+        if code == 0:
+            placed[:2] = feature
+        else:
+            placed[2:] = feature
+        if float(np.linalg.norm(placed)) == 0:
+            placed = EXIT_0 if code == 0 else EXIT_1
+        return _state_vector(placed)
+
+    def exit_probability(self, state: Sequence[complex] | NDArray[np.complex128], code: int) -> float:
+        """Return the probability of the requested exit qubit."""
+        vector = _state_vector(state)
+        span = vector[:2] if code == 0 else vector[2:]
+        return float(np.sum(np.abs(span) ** 2))
+
+    def exit_twin(self, state: Sequence[complex] | NDArray[np.complex128]) -> ComplexArray:
+        """Return the exit-0 twin of an exit-1 error state.
+
+        The observed failure is exit 1. Its entropy is the diffusion noise.
+        The adjoint twin operator mixes the feature register, then the exit
+        qubit is forced to 0 so the denoiser is guided at the success twin
+        rather than at another failure.
+        """
+        failure = self.as_exit(state, 1)
+        mixed = _STATUS_FLIP @ (self.operator.conj().T @ failure)
+        mixed[2:] = 0
+        if float(np.linalg.norm(mixed)) == 0:
+            mixed = EXIT_0.copy()
+        return _state_vector(mixed)
 
     def twin_state(
         self, trace_or_state: str | Sequence[complex] | NDArray[np.complex128]

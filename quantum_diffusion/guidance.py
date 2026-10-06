@@ -73,12 +73,17 @@ class ErrorEntropyGuidance:
         self.evaluator = evaluator or QuantumTwinEvaluator()
 
     def from_error(self, error: str | ErrorContext) -> Guidance:
-        state = (
-            self.evaluator.twin_state(error)
+        """Entropy is the noise on the exit-1 state; guidance is its exit-0 twin."""
+        encoded = (
+            self.evaluator.encode_trace(error)
             if isinstance(error, str)
-            else self.evaluator.twin_state(self.evaluator.encode_error(error))
+            else self.evaluator.encode_error(error)
         )
-        return Guidance(state=state, entropy=self.evaluator.entropy(state))
+        exit_one = self.evaluator.as_exit(encoded, 1)
+        return Guidance(
+            state=self.evaluator.exit_twin(exit_one),
+            entropy=self.evaluator.entropy(exit_one),
+        )
 
     def apply(
         self,

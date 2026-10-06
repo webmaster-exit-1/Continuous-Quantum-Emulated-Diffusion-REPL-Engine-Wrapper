@@ -129,10 +129,13 @@ inference callable and appends its updates to the same canvas.
 ## Matrix and error-state model
 
 `HADAMARD` is the two-qubit operator H ⊗ I; `CNOT` is the controlled-NOT
-operator. `QuantumTwinEvaluator` hashes an error trace into a normalized
-four-amplitude complex vector and applies the adjoint of a composed unitary.
-This is a deterministic error-feature transform, not a physical quantum
-computation or a semantic guarantee that generated code will be corrected.
+operator. An execution failure is exit 1. `QuantumTwinEvaluator` hashes that
+failure into a normalized four-amplitude state, and the entropy of the exit-1
+state is the diffusion noise. `exit_twin` applies the adjoint unitary and
+forces the exit qubit to 0, so the sampler is guided at the exit-0 twin of the
+failure rather than at another failure. This is a deterministic error-feature
+transform, not a physical quantum computation or a guarantee that generated
+code will be corrected.
 
 ## Security and scope
 
