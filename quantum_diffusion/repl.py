@@ -11,12 +11,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
-    from jupyter_client import AsyncKernelManager
-except ImportError as exc:  # pragma: no cover - exercised when optional deps are absent
-    raise ImportError(
-        "Jupyter kernel support requires jupyter-client and ipykernel"
-    ) from exc
+def _load_kernel_manager():
+    """Import Jupyter only when a kernel is actually started."""
+    try:
+        from jupyter_client import AsyncKernelManager
+    except ImportError as exc:  # pragma: no cover - exercised when deps are absent
+        raise ImportError(
+            "Jupyter kernel support requires jupyter-client and ipykernel"
+        ) from exc
+    return AsyncKernelManager
 
 
 @dataclass
@@ -72,17 +75,6 @@ class SandboxProfile:
             self._owned_workspace = False
 
 
-class _SandboxedKernelManager(AsyncKernelManager):
-    def __init__(self, *args: Any, profile: SandboxProfile, **kwargs: Any) -> None:
-        self.profile = profile
-        super().__init__(*args, **kwargs)
-
-    def format_kernel_cmd(self, extra_arguments: list[str] | None = None) -> list[str]:
-        command = super().format_kernel_cmd(extra_arguments)
-        connection_file = str(self.connection_file)
-        return self.profile.wrap_command(command, connection_file)
-
-
 @dataclass(frozen=True)
 class ExecutionResult:
     stdout: str = ""
@@ -106,7 +98,7 @@ class KernelSession:
         self.profile = profile or SandboxProfile()
         self.kernel_name = kernel_name
         self.startup_timeout = startup_timeout
-        self.manager: _SandboxedKernelManager | None = None
+        self.manager: Any | None = None
         self.client: Any | None = None
         self._execute_lock = asyncio.Lock()
 
@@ -115,7 +107,18 @@ class KernelSession:
             return
         workspace = self.profile.prepare()
         connection_file = workspace / ".kernel-connection.json"
-        self.manager = _SandboxedKernelManager(
+        base = _load_kernel_manager()
+
+        class SandboxedKernelManager(base):
+            def __init__(self, *args: Any, profile: SandboxProfile, **kwargs: Any) -> None:
+                self.profile = profile
+                super().__init__(*args, **kwargs)
+
+            def format_kernel_cmd(self, extra_arguments: list[str] | None = None) -> list[str]:
+                command = super().format_kernel_cmd(extra_arguments)
+                return self.profile.wrap_command(command, str(self.connection_file))
+
+        self.manager = SandboxedKernelManager(
             profile=self.profile,
             kernel_name=self.kernel_name,
             connection_file=str(connection_file),

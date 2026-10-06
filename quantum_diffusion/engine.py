@@ -117,7 +117,7 @@ class REPLFeedbackLoop:
                     raise TypeError("code repair sampler must return replacement text")
                 repaired = apply_region_repair(candidate, failure, replacement)
                 if repaired == candidate:
-                    continue
+                    return FeedbackResult(candidate, execution, attempt, corrected)
                 candidate = repaired
             else:
                 candidate = self.guidance.apply(

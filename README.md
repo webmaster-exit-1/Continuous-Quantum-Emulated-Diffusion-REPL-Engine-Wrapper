@@ -40,8 +40,9 @@ responsibility:
 5. **Candidate revision** – `DiffusionSampler.guide(canvas, state, entropy)`
    returns replacement source; a non-string result raises `TypeError`.
 6. **Retry loop** – the revised candidate is executed again. The loop stops on
-   success, when `max_attempts` is reached (a hard bound), or when the
-   `RetryPolicy` declines. The last attempt's outcome is returned.
+   success, when `max_attempts` is reached (a hard bound), when the
+   `RetryPolicy` declines, or when a repair returns text that does not change
+   the candidate. An unchanged repair is not re-executed.
 
 ### Context retention
 

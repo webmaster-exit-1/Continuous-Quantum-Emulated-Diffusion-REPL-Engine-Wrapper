@@ -181,15 +181,16 @@ class FakeKernel:
 
 
 class LoopTests(unittest.IsolatedAsyncioTestCase):
-    async def test_default_sampler_ends_at_attempt_limit_uncorrected(self):
-        loop = REPLFeedbackLoop(FakeKernel(), None)
+    async def test_default_sampler_stops_when_repair_does_not_change_code(self):
+        kernel = FakeKernel()
+        loop = REPLFeedbackLoop(kernel, None)
         self.assertIsInstance(loop.sampler, DiscreteDiffusionSampler)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = await loop.run("print(x)", max_attempts=3)
         self.assertFalse(result.corrected)
         self.assertEqual(result.code, "print(x)")
-        self.assertEqual(result.attempts, 3)
+        self.assertEqual(result.attempts, 1)
 
     async def test_end_to_end_repair_by_token_logits(self):
         snippets = (
