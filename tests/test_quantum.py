@@ -60,3 +60,14 @@ class QuantumOperatorTests(unittest.TestCase):
         self.assertAlmostEqual(evaluator.exit_probability(noisy, 1), 1.0)
         self.assertAlmostEqual(evaluator.exit_probability(evaluator.exit_twin(noisy), 0), 1.0)
         self.assertGreater(evaluator.entropy(noisy), 0.0)
+
+    def test_deviation_is_where_it_isnt_minus_where_it_is(self):
+        from quantum_diffusion.quantum import EXIT_1
+
+        evaluator = QuantumTwinEvaluator()
+        where_it_is = evaluator.as_exit(evaluator.encode_trace("NameError: x"), 1)
+        where_it_isnt = evaluator.exit_twin(where_it_is)
+        command = evaluator.deviation(where_it_is, where_it_isnt)
+        self.assertEqual(command.shape, (4,))
+        self.assertAlmostEqual(float(abs(command @ command.conj())), 1.0)
+        self.assertLess(state_fidelity(command, where_it_is), 1.0)

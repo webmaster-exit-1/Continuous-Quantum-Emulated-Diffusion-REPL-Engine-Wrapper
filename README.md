@@ -132,8 +132,9 @@ inference callable and appends its updates to the same canvas.
 operator. An execution failure is exit 1. `QuantumTwinEvaluator` hashes that
 failure into a normalized four-amplitude state, and the entropy of the exit-1
 state is the diffusion noise. `exit_twin` applies the adjoint unitary and
-forces the exit qubit to 0, so the sampler is guided at the exit-0 twin of the
-failure rather than at another failure. This is a deterministic error-feature
+forces the exit qubit to 0. The guidance command is that exit-0 twin minus
+the exit-1 state: where it isn't, minus where it is. Entropy on where it is
+remains the noise. This is a deterministic error-feature
 transform, not a physical quantum computation or a guarantee that generated
 code will be corrected.
 

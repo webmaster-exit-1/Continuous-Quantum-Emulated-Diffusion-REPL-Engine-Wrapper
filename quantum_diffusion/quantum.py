@@ -192,6 +192,22 @@ class QuantumTwinEvaluator:
             mixed = EXIT_0.copy()
         return _state_vector(mixed)
 
+    def deviation(
+        self,
+        where_it_is: Sequence[complex] | NDArray[np.complex128],
+        where_it_isnt: Sequence[complex] | NDArray[np.complex128],
+    ) -> ComplexArray:
+        """Corrective command: where it isn't minus where it is.
+
+        The failure is the position the candidate is in. The exit-0 twin is the
+        position it isn't. Their difference is the deviation the denoiser uses
+        to drive the next sample from the first toward the second.
+        """
+        delta = _state_vector(where_it_isnt) - _state_vector(where_it_is)
+        if float(np.linalg.norm(delta)) == 0:
+            raise ValueError("deviation is zero; the state is already where it isn't")
+        return _state_vector(delta)
+
     def twin_state(
         self, trace_or_state: str | Sequence[complex] | NDArray[np.complex128]
     ) -> ComplexArray:
