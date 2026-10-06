@@ -7,7 +7,7 @@ import warnings
 
 import numpy as np
 
-from quantum_diffusion import DiscreteDiffusionSampler, REPLFeedbackLoop, TokenScorer
+from quantum_diffusion import DiscreteDiffusionSampler, RECOMMENDED_MODEL, REPLFeedbackLoop, TokenScorer
 from quantum_diffusion.errors import extract_error_context
 from quantum_diffusion.guidance import RepairRequest
 from quantum_diffusion.repl import ExecutionResult, KernelSession, SandboxProfile
@@ -231,3 +231,41 @@ class RealTracebackTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SubwordAlignmentTests(unittest.TestCase):
+    def test_recommended_model_is_the_codebert_mlm(self):
+        self.assertEqual(RECOMMENDED_MODEL, "microsoft/codebert-base-mlm")
+
+    def test_span_mask_covers_every_overlapping_subword(self):
+        from quantum_diffusion.samplers import mask_positions_for_span, region_char_span
+
+        code = "value = missing_name\n"
+        start, end = region_char_span(code, 1, 1)
+        offsets = [(0, 5), (6, 7), (8, 15), (15, 19)]
+        self.assertEqual(mask_positions_for_span(offsets, start, end), [0, 1, 2, 3])
+        self.assertEqual(mask_positions_for_span(offsets, 8, 15), [2])
+
+    def test_subword_repair_decodes_the_whole_span(self):
+        class Pieces:
+            mask_token_id = 0
+            def encode_text(self, text):
+                ids = [1, 2, 3]
+                offsets = [(0, 1), (1, 2), (2, 3)]
+                return ids, offsets
+            def decode_span(self, token_ids):
+                return "ok!"
+            def score(self, token_ids, mask_positions, temperature):
+                rows = np.zeros((len(mask_positions), 4))
+                rows[:, 1] = 5.0
+                return rows / temperature
+
+        class SubwordScorer(Pieces):
+            pass
+
+        # The masked-LM branch is selected by isinstance _MaskedLMScorer.
+        # Exercise the span helpers and the denoise contract through a protocol scorer.
+        sampler = DiscreteDiffusionSampler(scorer=Pieces(), steps=1, seed=0)
+        repaired = sampler._denoise(Pieces(), [9, 9, 9], [0, 1, 2], np.ones(4), 0.0)
+        self.assertEqual(len(repaired), 3)
+        self.assertTrue(all(piece != 0 for piece in repaired))

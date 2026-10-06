@@ -82,6 +82,17 @@ bounded context, "guidance" for the deterministic state and entropy, and
 python -m pip install .
 ```
 
+The diffusion sampler loads a masked language model, not a chat model. The
+checkpoint that fits the loader is `microsoft/codebert-base-mlm`
+(`quantum_diffusion.RECOMMENDED_MODEL`). `microsoft/codebert-base` is the
+replaced-token model and will be rejected because it has no mask token.
+
+```sh
+python -m pip install ".[diffusion]"
+python examples/repair_with_codebert.py
+```
+
+
 Kernel filesystem isolation uses
 [bubblewrap](https://github.com/containers/bubblewrap) by default. Install it
 using your operating system's package manager before starting a kernel. The

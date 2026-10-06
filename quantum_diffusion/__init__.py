@@ -20,7 +20,7 @@ from .quantum import (
     state_fidelity,
 )
 from .repl import ExecutionResult, KernelSession, SandboxProfile
-from .samplers import DiscreteDiffusionSampler, TokenScorer
+from .samplers import RECOMMENDED_MODEL, DiscreteDiffusionSampler, TokenScorer
 
 __all__ = [
     "CNOT",
@@ -30,6 +30,7 @@ __all__ = [
     "HADAMARD",
     "ContinuousCanvas",
     "DiscreteDiffusionSampler",
+    "RECOMMENDED_MODEL",
     "ExecutionResult",
     "FeedbackResult",
     "Inference",

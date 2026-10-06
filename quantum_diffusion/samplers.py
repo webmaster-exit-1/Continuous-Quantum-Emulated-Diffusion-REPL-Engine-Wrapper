@@ -27,6 +27,9 @@ if TYPE_CHECKING:
 _TOKEN = re.compile(r"\s+|\w+|[^\w\s]")
 _GOLDEN = 0.6180339887498949
 _BIAS_SCALE = 0.25
+# Masked-LM checkpoint that fits AutoModelForMaskedLM. codebert-base is the
+# replaced-token model and cannot fill masks; this is the MLM checkpoint.
+RECOMMENDED_MODEL = "microsoft/codebert-base-mlm"
 
 
 @runtime_checkable
@@ -58,6 +61,26 @@ class TokenScorer(Protocol):
         ...
 
 
+
+def region_char_span(code: str, region_start: int, region_end: int) -> tuple[int, int]:
+    """Return the character span of a 1-based inclusive line region."""
+    lines = code.splitlines(keepends=True)
+    start = max(0, region_start - 1)
+    end = max(start, min(region_end, len(lines)))
+    return sum(len(line) for line in lines[:start]), sum(len(line) for line in lines[:end])
+
+
+def mask_positions_for_span(offsets: Sequence[tuple[int, int]], start: int, end: int) -> list[int]:
+    """Mask every non-empty piece that overlaps the failing source span."""
+    positions = []
+    for index, (piece_start, piece_end) in enumerate(offsets):
+        if piece_end <= piece_start:
+            continue
+        if piece_start < end and piece_end > start:
+            positions.append(index)
+    return positions
+
+
 class _MaskedLMScorer:
     """Scorer backed by a pretrained masked language model (fill-mask style)."""
 
@@ -81,6 +104,7 @@ class _MaskedLMScorer:
         self._window = max(8, min(int(limit), 512) - 4)
 
     def encode(self, tokens: Sequence[str]) -> list[int]:
+        """Protocol encode. Prefer :meth:`encode_text`, which keeps every subword."""
         unk = self.tokenizer.unk_token_id
         ids = []
         for token in tokens:
@@ -88,8 +112,19 @@ class _MaskedLMScorer:
             ids.append(int(pieces[0]) if pieces else int(unk or 0))
         return ids
 
+    def encode_text(self, text: str) -> tuple[list[int], list[tuple[int, int]]]:
+        encoded = self.tokenizer(
+            text, add_special_tokens=False, return_offsets_mapping=True
+        )
+        ids = [int(piece) for piece in encoded["input_ids"]]
+        offsets = [tuple(pair) for pair in encoded["offset_mapping"]]
+        return ids, offsets
+
     def decode(self, token_id: int) -> str:
         return str(self.tokenizer.decode([token_id])).strip()
+
+    def decode_span(self, token_ids: Sequence[int]) -> str:
+        return str(self.tokenizer.decode(list(token_ids), skip_special_tokens=True))
 
     def score(
         self,
@@ -182,6 +217,59 @@ class DiscreteDiffusionSampler:
             self._scorer = _MaskedLMScorer(self.model_path)
         return self._scorer
 
+    def _denoise(
+        self,
+        scorer: TokenScorer,
+        ids: list[int],
+        positions: list[int],
+        guidance: NDArray[np.complex128],
+        entropy: float,
+    ) -> list[int]:
+        mask_id = scorer.mask_token_id
+        for position in positions:
+            ids[position] = mask_id
+        committed: dict[int, int] = {}
+        temperature = self.temperature(entropy)
+        rng = np.random.default_rng(self.seed)
+        for step in range(self.steps):
+            remaining = [position for position in positions if position not in committed]
+            if not remaining:
+                break
+            logits = np.asarray(scorer.score(ids, remaining, temperature), dtype=np.float64)
+            if logits.ndim != 2 or logits.shape[0] != len(remaining):
+                raise ValueError("scorer must return one logit row per mask position")
+            logits = logits + self.logit_bias(guidance, logits.shape[1])
+            if 0 <= mask_id < logits.shape[1]:
+                logits[:, mask_id] = -np.inf
+            logits -= logits.max(axis=1, keepdims=True)
+            probs = np.exp(logits)
+            probs /= probs.sum(axis=1, keepdims=True)
+            choices = [int(rng.choice(probs.shape[1], p=row)) for row in probs]
+            confidence = [float(probs[index, choice]) for index, choice in enumerate(choices)]
+            noise = self.noise_scale(entropy)
+            if step == self.steps - 1:
+                quota = len(remaining)
+            else:
+                quota = max(1, math.ceil(len(remaining) * (1.0 - noise) / (self.steps - step)))
+            order = sorted(range(len(remaining)), key=lambda index: (-confidence[index], index))
+            for index in order[:quota]:
+                committed[remaining[index]] = choices[index]
+                ids[remaining[index]] = choices[index]
+        return ids
+
+    def _repair_subwords(self, request: RepairRequest, scorer: _MaskedLMScorer) -> str:
+        """Denoise every subword of the failing span, not only the first piece."""
+        failure = request.failure
+        code = request.code
+        char_start, char_end = region_char_span(code, failure.region_start, failure.region_end)
+        ids, offsets = scorer.encode_text(code)
+        positions = mask_positions_for_span(offsets, char_start, char_end)
+        if not positions:
+            return failure.failing_region
+        ids = self._denoise(scorer, ids, positions, request.guidance, request.entropy)
+        repaired = scorer.decode_span(ids[positions[0] : positions[-1] + 1])
+        return repaired.strip() or failure.failing_region
+
     def repair(self, request: RepairRequest) -> str:
         failure = request.failure
         region = failure.failing_region
@@ -193,6 +281,8 @@ class DiscreteDiffusionSampler:
                 stacklevel=2,
             )
             return region
+        if isinstance(scorer, _MaskedLMScorer):
+            return self._repair_subwords(request, scorer)
 
         before = _TOKEN.findall(failure.context_before)
         span = _TOKEN.findall(region)
@@ -204,40 +294,8 @@ class DiscreteDiffusionSampler:
         ids = scorer.encode(before + span + after)
         offset = len(before)
         positions = [offset + i for i in masked]
-        mask_id = scorer.mask_token_id
-        for position in positions:
-            ids[position] = mask_id
-        committed: dict[int, int] = {}
-        temperature = self.temperature(request.entropy)
-        rng = np.random.default_rng(self.seed)
-
-        for step in range(self.steps):
-            remaining = [p for p in positions if p not in committed]
-            if not remaining:
-                break
-            logits = np.asarray(
-                scorer.score(ids, remaining, temperature), dtype=np.float64
-            )
-            if logits.ndim != 2 or logits.shape[0] != len(remaining):
-                raise ValueError("scorer must return one logit row per mask position")
-            logits = logits + self.logit_bias(request.guidance, logits.shape[1])
-            if 0 <= mask_id < logits.shape[1]:
-                logits[:, mask_id] = -np.inf
-            logits -= logits.max(axis=1, keepdims=True)
-            probs = np.exp(logits)
-            probs /= probs.sum(axis=1, keepdims=True)
-            choices = [int(rng.choice(probs.shape[1], p=row)) for row in probs]
-            confidence = [float(probs[i, c]) for i, c in enumerate(choices)]
-            # Entropy is noise: a noisier exit-1 state commits fewer tokens per step.
-            noise = self.noise_scale(request.entropy)
-            if step == self.steps - 1:
-                quota = len(remaining)
-            else:
-                quota = max(1, math.ceil(len(remaining) * (1.0 - noise) / (self.steps - step)))
-            order = sorted(range(len(remaining)), key=lambda i: (-confidence[i], i))
-            for i in order[:quota]:
-                committed[remaining[i]] = choices[i]
-                ids[remaining[i]] = choices[i]
+        ids = self._denoise(scorer, ids, positions, request.guidance, request.entropy)
+        committed = {position: ids[position] for position in positions}
 
         result = list(span)
         for i, position in zip(masked, positions):
